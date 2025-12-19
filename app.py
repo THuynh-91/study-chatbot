@@ -3,6 +3,37 @@ import PyPDF2
 from io import BytesIO
 import base64
 import time
+from pathlib import Path
+import json, uuid
+from datetime import datetime, timezone
+
+
+def project_dirs(project_id: str):
+    base = Path("data") / "projects" / project_id
+
+     # Points UPLOAD_DIR -> data/uploads
+    upload_dir = base / "uploads"
+    manifest_path = base / "manifest.json"
+
+    # Makes the dir if it doesn't exist
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    return upload_dir, manifest_path
+
+def load_manifest(manifest_path: Path):
+    if manifest_path.exists():
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    return []
+
+def save_manifest(manifest_path: Path, manifest: list[dict]):
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+def utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+def human_kb(nbytes: int) -> str:
+    return f"{nbytes/1024:.1f} KB" if nbytes < 1024*1024 else f"{nbytes/1024/1024:.2f} MB"
+
 
 def initialize_session_state():
     # Initializing the current page
@@ -14,6 +45,12 @@ def initialize_session_state():
 
     if 'rag_uploader_key' not in st.session_state:
         st.session_state.rag_uploader_key = 0
+
+    if "selected_doc_ids" not in st.session_state:
+        st.session_state.selected_doc_ids = set()
+
+    if "sort_mode" not in st.session_state:
+        st.session_state.sort_mode = "Newest"
 
 def render_sidebar():
     # Sidebar 
@@ -64,6 +101,10 @@ def render_file_manager_page():
     </style>
     """, unsafe_allow_html=True)
 
+    project_id = "default"
+    UPLOAD_DIR, MANIFEST_PATH = project_dirs(project_id)
+    manifest = load_manifest(MANIFEST_PATH)
+
 
     # Two columns, title and then uploader
     col1, col2 = st.columns([2.5, 1.25])
@@ -88,13 +129,40 @@ def render_file_manager_page():
 
     if uploaded_files:
         for f in uploaded_files:
-            file_name = f.name
-            file_bytes = f.getvalue()
+            '''
+            File = "notes.pdf
 
-            #TODO
-            #ingest_into_rag(f.name, f.bytes)
+            f.name = 'notes.pdf'
+            f.getvalue() -- actual contents of notes.pdf
+
+            This is then saved:
+            save_path -- builds the full file path (data/uploads/notes.pdf)
+            save_path.write_bytes -- creates or overwrites the file
+            '''
+            original_name = f.name
+            file_bytes = f.getvalue()
+            doc_id = str(uuid.uuid4())
+
+            stored_name = f"{doc_id}__{original_name}"
+            (UPLOAD_DIR / stored_name).write_bytes(file_bytes)
+
+            manifest.append({
+                "doc_id": doc_id,
+                "original_name": original_name,
+                "stored_name": stored_name,
+                "bytes": len(file_bytes),
+                "uploaded_at": utc_now_iso()
+            })
+
+        save_manifest(MANIFEST_PATH, manifest)
         
-        # clear uploader so nothing is stoored
+        # clear uploader so nothing is stored
+        '''
+        Streamlit widget remembers states via key:
+        By changing the key we destroy the old uploader
+            and also create a brand-new empty uploader
+            making the uploader temporary and doesn't store anything.
+        '''
         st.session_state.rag_uploader_key += 1
         st.rerun()
 
@@ -102,6 +170,41 @@ def render_file_manager_page():
     st.markdown("""
         <hr style="margin-top: -1rem; margin-bottom: 1rem; width: 91%">
     """, unsafe_allow_html=True)
+
+    sort_mode = st.selectbox(
+        "Sort",
+        ["Newest", "Oldest", "Name (A→Z)", "Name (Z→A)", "Size (Smallest)", "Size (Largest)"],
+        key="sort_mode",
+    )
+
+    def sort_key(item: dict):
+        if sort_mode in ("Newest", "Oldest"):
+            return item.get("uploaded_at", "")
+        
+        if sort_mode in ("Name (A→Z)", "Name (Z→A)"):
+            return item.get("original_name", "").lower()
+        
+        if sort_mode in ("Size (Largest)", "Size (Smallest)"):
+            return item.get("bytes", 0)
+        
+        return item.get("uploaded_at", "")
+    
+    
+    reverse = sort_mode in ("Newest", "Name (Z→A)", "Size (Largest)")
+    manifest_view = sorted(manifest, key=sort_key, reverse=reverse)
+
+    top_left, top_right = st.columns([1, 1])
+
+    if top_left.button("Select all", use_container_width=True):
+        st.session_state.selected_doc_ids = {m["doc_id"] for m in manifest}
+        st.rerun()
+
+    if top_right.button("Clear selection", use_container_width=True):
+        st.session_state.selected_doc_ids = set()
+        st.rerun()
+    st.caption(f"Selected documents: {len(st.session_state.selected_doc_ids)}")
+
+
 
 
 def main():
