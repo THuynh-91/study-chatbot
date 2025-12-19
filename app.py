@@ -31,6 +31,12 @@ def save_manifest(manifest_path: Path, manifest: list[dict]):
 def utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
 
+def short_ts(iso_str: str) -> str:
+    if not iso_str:
+        return ""
+    return iso_str.replace("T", " ")[:16]
+
+
 def human_kb(nbytes: int) -> str:
     return f"{nbytes/1024:.1f} KB" if nbytes < 1024*1024 else f"{nbytes/1024/1024:.2f} MB"
 
@@ -70,6 +76,8 @@ def render_chat_page():
         st.info("Chat page - WIP")
 
 def render_file_manager_page():
+
+    
     # Hides upload icon & reduces spacing from header & markdown
     st.markdown("""
     <style>
@@ -93,11 +101,24 @@ def render_file_manager_page():
     [data-testid="stFileUploaderFile"] {
         display: none;}
                 
-    /* Hides the page output files */ 
+    /* Hides the page output files */
     [data-testid="stFileUploaderPagination"] {
         display: none;}
-                
-    
+
+
+    /* Center checkboxes only when they're inside a column (not standalone elements) */
+    [data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlock"]:has(.stCheckbox) {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+    }
+
+    [data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlock"]:has(.stCheckbox) > * {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+    }
+
     </style>
     """, unsafe_allow_html=True)
 
@@ -218,7 +239,72 @@ def render_file_manager_page():
     manifest_view = sorted(manifest, key=sort_key, reverse=reverse)
     st.caption(f"Selected documents: {len(st.session_state.selected_doc_ids)}")
 
+    if not manifest_view:
+        st.info("No files uploaded yet.")
+    else:
+        for item in manifest_view:
+            doc_id = item["doc_id"]
+            name = item["original_name"]
+            size = human_kb(item["bytes"])
+            ts = item["uploaded_at"]
 
+            # default: newly uploaded files are selected
+            if doc_id not in st.session_state.selected_doc_ids:
+                st.session_state.selected_doc_ids.add(doc_id)
+
+            c1, c2, c3 = st.columns([0.8, 6, 1.2], vertical_alignment="center")
+
+            # ---- Checkbox (draft selection) ----
+            with c1:
+                checked = st.checkbox(
+                    "",
+                    value=(doc_id in st.session_state.selected_doc_ids),
+                    key=f"use_{doc_id}",
+                )
+
+                if checked:
+                    st.session_state.selected_doc_ids.add(doc_id)
+                else:
+                    st.session_state.selected_doc_ids.discard(doc_id)
+
+            # Filename + metadata 
+            with c2:
+                ts_short = short_ts(ts)
+                st.markdown(
+                    f"""
+                    <span style="font-weight:600;">{name}</span>
+                    <span style="opacity:0.65; font-size:0.85rem;">
+                        &nbsp;·&nbsp;{size}&nbsp;·&nbsp;{ts_short}
+                    </span>
+
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+
+            # Delete (disabled if selected) 
+            with c3:
+                delete_disabled = doc_id in st.session_state.selected_doc_ids
+
+                if st.button(
+                    "Delete",
+                    key=f"del_{doc_id}",
+                    use_container_width=True,
+                    disabled=delete_disabled,
+                ):
+                    # delete file from disk
+                    file_path = UPLOAD_DIR / item["stored_name"]
+                    if file_path.exists():
+                        file_path.unlink()
+
+                    # remove from manifest
+                    manifest = [m for m in manifest if m["doc_id"] != doc_id]
+                    save_manifest(MANIFEST_PATH, manifest)
+
+                    # remove from draft selection
+                    st.session_state.selected_doc_ids.discard(doc_id)
+
+                    st.rerun()
 
 
 def main():
