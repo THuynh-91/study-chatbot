@@ -107,7 +107,7 @@ def render_file_manager_page():
 
 
     # Two columns, title and then uploader
-    col1, col2 = st.columns([2.5, 1.25])
+    col1, col2 = st.columns([4, 1.5])
 
     with col1:
         st.header("File Manager")
@@ -168,40 +168,54 @@ def render_file_manager_page():
 
     # Divider
     st.markdown("""
-        <hr style="margin-top: -1rem; margin-bottom: 1rem; width: 91%">
+        <hr style="margin-top: -1rem; margin-bottom: 1rem; width: 100%">
     """, unsafe_allow_html=True)
 
-    sort_mode = st.selectbox(
-        "Sort",
-        ["Newest", "Oldest", "Name (A→Z)", "Name (Z→A)", "Size (Smallest)", "Size (Largest)"],
-        key="sort_mode",
-    )
+    t1, t2, t3, t4 = st.columns([2.2, 1.1, 1.3, 1.2], vertical_alignment="center")
+
+    # Filter
+    with t1:
+        sort_mode = st.selectbox(
+            "Sort",
+            ["Newest", "Oldest", "Name (A→Z)", "Name (Z→A)", "Size (Smallest)", "Size (Largest)"],
+            key="sort_mode",
+            label_visibility="collapsed",
+        )
+
+    # Select all docs
+    with t2:
+        if st.button("Select all", use_container_width=True):
+            st.session_state.selected_doc_ids = {m["doc_id"] for m in manifest}
+            st.rerun()
+
+    # Deselect all docs
+    with t3:
+        if st.button("Deselect all", use_container_width=True):
+            st.session_state.selected_doc_ids = set()
+            st.rerun()
+
+    #TBD
+    with t4:
+        # Placeholder behavior for now: "Apply" just confirms draft is saved.
+        # Later you'll compare draft vs applied and show the popup diff.
+        apply_clicked = st.button("Apply", use_container_width=True, type="primary")
 
     def sort_key(item: dict):
-        if sort_mode in ("Newest", "Oldest"):
+            if sort_mode in ("Newest", "Oldest"):
+                return item.get("uploaded_at", "")
+            
+            if sort_mode in ("Name (A→Z)", "Name (Z→A)"):
+                return item.get("original_name", "").lower()
+            
+            if sort_mode in ("Size (Largest)", "Size (Smallest)"):
+                return item.get("bytes", 0)
+            
             return item.get("uploaded_at", "")
         
-        if sort_mode in ("Name (A→Z)", "Name (Z→A)"):
-            return item.get("original_name", "").lower()
         
-        if sort_mode in ("Size (Largest)", "Size (Smallest)"):
-            return item.get("bytes", 0)
-        
-        return item.get("uploaded_at", "")
-    
-    
     reverse = sort_mode in ("Newest", "Name (Z→A)", "Size (Largest)")
+    
     manifest_view = sorted(manifest, key=sort_key, reverse=reverse)
-
-    top_left, top_right = st.columns([1, 1])
-
-    if top_left.button("Select all", use_container_width=True):
-        st.session_state.selected_doc_ids = {m["doc_id"] for m in manifest}
-        st.rerun()
-
-    if top_right.button("Clear selection", use_container_width=True):
-        st.session_state.selected_doc_ids = set()
-        st.rerun()
     st.caption(f"Selected documents: {len(st.session_state.selected_doc_ids)}")
 
 
