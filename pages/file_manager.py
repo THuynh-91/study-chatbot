@@ -179,9 +179,10 @@ def render_file_manager_page():
 
     reverse = sort_mode in ("Newest", "Name (Z→A)", "Size (Largest)")
 
-    manifest_view = sorted(manifest, key=sort_key, reverse=reverse)
+    count_slot = st.empty()   # placeholder for the caption
+    count_slot.caption(f"Selected documents: {len(st.session_state.selected_doc_ids)}")
 
-    st.caption(f"Selected documents: {len(st.session_state.selected_doc_ids)}")
+    manifest_view = sorted(manifest, key=sort_key, reverse=reverse)
 
     if not manifest_view:
         st.info("No files uploaded yet.")
@@ -251,3 +252,12 @@ def render_file_manager_page():
                     st.session_state.selected_doc_ids.discard(doc_id)
 
                     st.rerun()
+    
+    new_selected = set()
+    for m in manifest:
+        doc_id = m["doc_id"]
+        if st.session_state.get(f"use_{doc_id}", False):
+            new_selected.add(doc_id)
+
+    st.session_state.selected_doc_ids = new_selected
+    count_slot.caption(f"Selected documents: {len(new_selected)}")
