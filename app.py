@@ -14,11 +14,15 @@ def initialize_session_state():
     if 'rag_uploader_key' not in st.session_state:
         st.session_state.rag_uploader_key = 0
 
-    if "selected_doc_ids" not in st.session_state:
-        st.session_state.selected_doc_ids = set()
-
     if "sort_mode" not in st.session_state:
         st.session_state.sort_mode = "Newest"
+
+    if "viewer_open" not in st.session_state:
+        st.session_state.viewer_open = False
+
+    if "viewer_doc_id" not in st.session_state:
+        st.session_state.viewer_doc_id = None
+
 
 def render_sidebar():
     # Sidebar 
@@ -27,9 +31,15 @@ def render_sidebar():
 
         if st.button("New Chat", use_container_width = True):
             st.session_state.current_page = "Chat"
+            # Close viewer when switching pages
+            st.session_state.viewer_open = False
+            st.session_state.viewer_doc_id = None
 
         if st.button("File Manager", use_container_width = True):
             st.session_state.current_page = "File Manager"
+            # Close viewer when switching pages
+            st.session_state.viewer_open = False
+            st.session_state.viewer_doc_id = None
 
 
 def main():
