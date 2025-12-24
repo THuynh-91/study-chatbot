@@ -38,3 +38,26 @@ def short_ts(iso_str: str) -> str:
 
 def human_kb(nbytes: int) -> str:
     return f"{nbytes/1024:.1f} KB" if nbytes < 1024*1024 else f"{nbytes/1024/1024:.2f} MB"
+
+
+def load_selections(project_id: str) -> set:
+    """Load selected document IDs from disk"""
+    _, manifest_path = project_dirs(project_id)
+    selections_path = manifest_path.parent / "selections.json"
+
+    if selections_path.exists():
+        try:
+            data = json.loads(selections_path.read_text(encoding="utf-8"))
+            return set(data.get("selected_doc_ids", []))
+        except Exception:
+            return set()
+    return set()
+
+
+def save_selections(project_id: str, selected_doc_ids: set):
+    """Save selected document IDs to disk"""
+    _, manifest_path = project_dirs(project_id)
+    selections_path = manifest_path.parent / "selections.json"
+
+    data = {"selected_doc_ids": list(selected_doc_ids)}
+    selections_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
