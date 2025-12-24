@@ -6,41 +6,28 @@ from utils.file_helpers import (
     save_manifest,
     utc_now_iso,
     short_ts,
-    human_kb
+    human_kb,
+    load_selections,
+    save_selections
 )
+from utils.file_viewer import view_file
 
 
 def render_file_manager_page():
 
-    # Hides upload icon & reduces spacing from header & markdown
     st.markdown("""
     <style>
-    /* Pull everything to the top */
-    .block-container {
-        padding-top: 2.75rem !important;
-    }
+    .block-container { padding-top: 2.75rem !important; }
 
-    /* Optional: remove extra top margin on the header itself */
     h2 {
         margin-top: 0rem !important;
         margin-bottom: -1.5rem !important;
     }
 
-    /* Only hide upload icon */
-    [data-testid="stFileUploader"] section svg {
-        display: none;
-    }
+    [data-testid="stFileUploader"] section svg { display: none; }
+    [data-testid="stFileUploaderFile"] { display: none; }
+    [data-testid="stFileUploaderPagination"] { display: none; }
 
-    /* Hides the output files that are uploaded */
-    [data-testid="stFileUploaderFile"] {
-        display: none;}
-
-    /* Hides the page output files */
-    [data-testid="stFileUploaderPagination"] {
-        display: none;}
-
-
-    /* Center checkboxes only when they're inside a column (not standalone elements) */
     [data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlock"]:has(.stCheckbox) {
         display: flex !important;
         justify-content: center !important;
@@ -52,7 +39,6 @@ def render_file_manager_page():
         justify-content: center !important;
         align-items: center !important;
     }
-
     </style>
     """, unsafe_allow_html=True)
 
@@ -60,6 +46,17 @@ def render_file_manager_page():
     UPLOAD_DIR, MANIFEST_PATH = project_dirs(project_id)
     manifest = load_manifest(MANIFEST_PATH)
 
+    # Load persisted selections on first load
+    if "selected_doc_ids" not in st.session_state:
+        st.session_state.selected_doc_ids = load_selections(project_id)
+
+    # Sync checkbox widget states with selected_doc_ids on page load
+    for item in manifest:
+        doc_id = item["doc_id"]
+        checkbox_key = f"use_{doc_id}"
+        # If checkbox key doesn't exist yet, initialize it from selected_doc_ids
+        if checkbox_key not in st.session_state:
+            st.session_state[checkbox_key] = doc_id in st.session_state.selected_doc_ids
 
     # Two columns, title and then uploader
     col1, col2 = st.columns([4, 1.5])
@@ -70,30 +67,17 @@ def render_file_manager_page():
 
     with col2:
         st.write("")
-
-        #File uploader
         uploaded_files = st.file_uploader(
-            label = 'Upload Files for RAG',
-            label_visibility = 'collapsed',
-            accept_multiple_files = True,
-            type = None,
-            width = 405,
-            key = f"rag_uploader_{st.session_state.rag_uploader_key}"
+            label='Upload Files for RAG',
+            label_visibility='collapsed',
+            accept_multiple_files=True,
+            type=None,
+            width=405,
+            key=f"rag_uploader_{st.session_state.rag_uploader_key}"
         )
-
 
     if uploaded_files:
         for f in uploaded_files:
-            '''
-            File = "notes.pdf
-
-            f.name = 'notes.pdf'
-            f.getvalue() -- actual contents of notes.pdf
-
-            This is then saved:
-            save_path -- builds the full file path (data/uploads/notes.pdf)
-            save_path.write_bytes -- creates or overwrites the file
-            '''
             original_name = f.name
             file_bytes = f.getvalue()
             doc_id = str(uuid.uuid4())
@@ -111,24 +95,15 @@ def render_file_manager_page():
 
         save_manifest(MANIFEST_PATH, manifest)
 
-        # clear uploader so nothing is stored
-        '''
-        Streamlit widget remembers states via key:
-        By changing the key we destroy the old uploader
-            and also create a brand-new empty uploader
-            making the uploader temporary and doesn't store anything.
-        '''
         st.session_state.rag_uploader_key += 1
         st.rerun()
 
     # Divider
-    st.markdown("""
-        <hr style="margin-top: -1rem; margin-bottom: 1rem; width: 100%">
-    """, unsafe_allow_html=True)
+    st.markdown("""<hr style="margin-top: -1rem; margin-bottom: 1rem; width: 100%">""",
+                unsafe_allow_html=True)
 
     t1, t2, t3, t4 = st.columns([2.2, 1.1, 1.3, 1.2], vertical_alignment="center")
 
-    # Filter
     with t1:
         sort_mode = st.selectbox(
             "Sort",
@@ -141,45 +116,43 @@ def render_file_manager_page():
     with t2:
         if st.button("Select all", use_container_width=True):
             st.session_state.selected_doc_ids = {m["doc_id"] for m in manifest}
-
-            # IMPORTANT: update widget state for each checkbox key
             for m in manifest:
                 st.session_state[f"use_{m['doc_id']}"] = True
-
+            # Close viewer when selecting all
+            st.session_state.viewer_open = False
+            st.session_state.viewer_doc_id = None
+            # Persist selections to disk
+            save_selections(project_id, st.session_state.selected_doc_ids)
             st.rerun()
 
     # Deselect all docs
     with t3:
         if st.button("Deselect all", use_container_width=True):
             st.session_state.selected_doc_ids = set()
-
             for m in manifest:
                 st.session_state[f"use_{m['doc_id']}"] = False
-            
+            # Close viewer when deselecting all
+            st.session_state.viewer_open = False
+            st.session_state.viewer_doc_id = None
+            # Persist selections to disk
+            save_selections(project_id, st.session_state.selected_doc_ids)
             st.rerun()
 
-    #TBD
     with t4:
-        # Placeholder behavior for now: "Apply" just confirms draft is saved.
-        # Later you'll compare draft vs applied and show the popup diff.
         apply_clicked = st.button("Apply", use_container_width=True, type="primary")
 
     def sort_key(item: dict):
-            if sort_mode in ("Newest", "Oldest"):
-                return item.get("uploaded_at", "")
-
-            if sort_mode in ("Name (A→Z)", "Name (Z→A)"):
-                return item.get("original_name", "").lower()
-
-            if sort_mode in ("Size (Largest)", "Size (Smallest)"):
-                return item.get("bytes", 0)
-
+        if sort_mode in ("Newest", "Oldest"):
             return item.get("uploaded_at", "")
-
+        if sort_mode in ("Name (A→Z)", "Name (Z→A)"):
+            return item.get("original_name", "").lower()
+        if sort_mode in ("Size (Largest)", "Size (Smallest)"):
+            return item.get("bytes", 0)
+        return item.get("uploaded_at", "")
 
     reverse = sort_mode in ("Newest", "Name (Z→A)", "Size (Largest)")
 
-    count_slot = st.empty()   # placeholder for the caption
+    count_slot = st.empty()
     count_slot.caption(f"Selected documents: {len(st.session_state.selected_doc_ids)}")
 
     manifest_view = sorted(manifest, key=sort_key, reverse=reverse)
@@ -193,26 +166,20 @@ def render_file_manager_page():
             size = human_kb(item["bytes"])
             ts = item["uploaded_at"]
 
-            c1, c2, c3 = st.columns([0.8, 6, 1.2], vertical_alignment="center")
+            c1, c2, c3, c4 = st.columns([0.8, 5, 1, 1.2], vertical_alignment="center")
 
-            # ---- Checkbox (draft selection) ----
+            # Checkbox
             with c1:
-                # Check current state before rendering
                 was_selected = doc_id in st.session_state.selected_doc_ids
+                is_checked = st.checkbox("", value=was_selected, key=f"use_{doc_id}")
 
-                # Render checkbox with current state
-                is_checked = st.checkbox(
-                    "",
-                    value=was_selected,
-                    key=f"use_{doc_id}",
-                )
-
-                # Update session state based on checkbox interaction
                 if is_checked != was_selected:
                     if is_checked:
                         st.session_state.selected_doc_ids.add(doc_id)
                     else:
                         st.session_state.selected_doc_ids.discard(doc_id)
+                    # Persist selections to disk
+                    save_selections(project_id, st.session_state.selected_doc_ids)
 
             # Filename + metadata
             with c2:
@@ -223,41 +190,65 @@ def render_file_manager_page():
                     <span style="opacity:0.65; font-size:0.85rem;">
                         &nbsp;·&nbsp;{size}&nbsp;·&nbsp;{ts_short}
                     </span>
-
                     """,
                     unsafe_allow_html=True,
                 )
 
-
-            # Delete (disabled if selected)
+            # View button (pins viewer_doc_id)
             with c3:
-                delete_disabled = doc_id in st.session_state.selected_doc_ids
+                if st.button("View", key=f"view_{doc_id}", use_container_width=True):
+                    st.session_state.viewer_open = True
+                    st.session_state.viewer_doc_id = doc_id
+                    st.rerun()
 
-                if st.button(
-                    "Delete",
-                    key=f"del_{doc_id}",
-                    use_container_width=True,
-                    disabled=delete_disabled,
-                ):
-                    # delete file from disk
+            # Delete
+            with c4:
+                delete_disabled = doc_id in st.session_state.selected_doc_ids
+                if st.button("Delete", key=f"del_{doc_id}", use_container_width=True, disabled=delete_disabled):
                     file_path = UPLOAD_DIR / item["stored_name"]
                     if file_path.exists():
                         file_path.unlink()
 
-                    # remove from manifest
                     manifest = [m for m in manifest if m["doc_id"] != doc_id]
                     save_manifest(MANIFEST_PATH, manifest)
 
-                    # remove from draft selection
                     st.session_state.selected_doc_ids.discard(doc_id)
+                    st.session_state.pop(f"use_{doc_id}", None)
 
+                    # If you deleted the currently viewed file, close viewer
+                    if st.session_state.viewer_doc_id == doc_id:
+                        st.session_state.viewer_open = False
+                        st.session_state.viewer_doc_id = None
+
+                    # Persist selections to disk
+                    save_selections(project_id, st.session_state.selected_doc_ids)
                     st.rerun()
-    
-    new_selected = set()
-    for m in manifest:
-        doc_id = m["doc_id"]
-        if st.session_state.get(f"use_{doc_id}", False):
-            new_selected.add(doc_id)
 
-    st.session_state.selected_doc_ids = new_selected
-    count_slot.caption(f"Selected documents: {len(new_selected)}")
+    count_slot.caption(f"Selected documents: {len(st.session_state.selected_doc_ids)}")
+
+    # -------------------------
+    # Viewer dialog (ONE system)
+    # -------------------------
+    if st.session_state.viewer_open and st.session_state.viewer_doc_id:
+        doc_id = st.session_state.viewer_doc_id
+        viewing_item = next((m for m in manifest if m["doc_id"] == doc_id), None)
+
+        if viewing_item is None:
+            # file missing from manifest
+            st.session_state.viewer_open = False
+            st.session_state.viewer_doc_id = None
+        else:
+            @st.dialog(viewing_item["original_name"], width="large")
+            def show_file_viewer():
+                file_path = UPLOAD_DIR / viewing_item["stored_name"]
+                if file_path.exists():
+                    view_file(file_path, viewing_item["original_name"])
+                else:
+                    st.error("File not found on disk")
+
+                if st.button("Close", use_container_width=True):
+                    st.session_state.viewer_open = False
+                    st.session_state.viewer_doc_id = None
+                    st.rerun()
+
+            show_file_viewer()
