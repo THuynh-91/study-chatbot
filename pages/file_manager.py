@@ -141,12 +141,21 @@ def render_file_manager_page():
     with t2:
         if st.button("Select all", use_container_width=True):
             st.session_state.selected_doc_ids = {m["doc_id"] for m in manifest}
+
+            # IMPORTANT: update widget state for each checkbox key
+            for m in manifest:
+                st.session_state[f"use_{m['doc_id']}"] = True
+
             st.rerun()
 
     # Deselect all docs
     with t3:
         if st.button("Deselect all", use_container_width=True):
             st.session_state.selected_doc_ids = set()
+
+            for m in manifest:
+                st.session_state[f"use_{m['doc_id']}"] = False
+            
             st.rerun()
 
     #TBD
@@ -171,6 +180,7 @@ def render_file_manager_page():
     reverse = sort_mode in ("Newest", "Name (Z→A)", "Size (Largest)")
 
     manifest_view = sorted(manifest, key=sort_key, reverse=reverse)
+
     st.caption(f"Selected documents: {len(st.session_state.selected_doc_ids)}")
 
     if not manifest_view:
@@ -182,24 +192,26 @@ def render_file_manager_page():
             size = human_kb(item["bytes"])
             ts = item["uploaded_at"]
 
-            # default: newly uploaded files are selected
-            if doc_id not in st.session_state.selected_doc_ids:
-                st.session_state.selected_doc_ids.add(doc_id)
-
             c1, c2, c3 = st.columns([0.8, 6, 1.2], vertical_alignment="center")
 
             # ---- Checkbox (draft selection) ----
             with c1:
-                checked = st.checkbox(
+                # Check current state before rendering
+                was_selected = doc_id in st.session_state.selected_doc_ids
+
+                # Render checkbox with current state
+                is_checked = st.checkbox(
                     "",
-                    value=(doc_id in st.session_state.selected_doc_ids),
+                    value=was_selected,
                     key=f"use_{doc_id}",
                 )
 
-                if checked:
-                    st.session_state.selected_doc_ids.add(doc_id)
-                else:
-                    st.session_state.selected_doc_ids.discard(doc_id)
+                # Update session state based on checkbox interaction
+                if is_checked != was_selected:
+                    if is_checked:
+                        st.session_state.selected_doc_ids.add(doc_id)
+                    else:
+                        st.session_state.selected_doc_ids.discard(doc_id)
 
             # Filename + metadata
             with c2:
