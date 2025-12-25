@@ -1,6 +1,6 @@
 import streamlit as st
-from pages.chat import render_chat_page
-from pages.file_manager import render_file_manager_page
+from views.chat import render_chat_page
+from views.file_manager import render_file_manager_page
 
 
 def initialize_session_state():
