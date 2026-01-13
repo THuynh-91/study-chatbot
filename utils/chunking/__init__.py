@@ -13,5 +13,6 @@ __all__ = [
     "store_chunks",
     "retrieve_chunks",
     "delete_document_chunks",
-    "clear_all_chunks"
+    "clear_all_chunks",
+    "get_or_create_collection"
 ]
