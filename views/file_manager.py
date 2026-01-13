@@ -11,6 +11,8 @@ from utils.file_helpers import (
     save_selections
 )
 from utils.file_viewer import view_file
+from utils.chunking import extract_text, create_chunks, store_chunks, delete_document_chunks 
+
 
 
 def render_file_manager_page():
@@ -138,8 +140,53 @@ def render_file_manager_page():
             save_selections(project_id, st.session_state.selected_doc_ids)
             st.rerun()
 
-    with t4:
-        apply_clicked = st.button("Apply", use_container_width=True, type="primary")
+        with t4:
+            apply_clicked = st.button("Apply", use_container_width=True, type="primary")
+        
+        if apply_clicked:
+            if not st.session_state.selected_doc_ids:
+                st.warning("No documents selected. Please check some boxes first.")
+            else:
+                with st.spinner(f"Processing {len(st.session_state.selected_doc_ids)} documents..."):
+                    success_count = 0
+                    error_count = 0
+                    
+                    for doc_id in st.session_state.selected_doc_ids:
+                        # Find the document in manifest
+                        doc_item = next((item for item in manifest if item["doc_id"] == doc_id), None)
+                        
+                        if not doc_item:
+                            continue
+                        
+                        try:
+                            # Build file path
+                            file_path = UPLOAD_DIR / doc_item["stored_name"]
+                            
+                            # Step 1: Extract text from file
+                            pages_data = extract_text(str(file_path))
+                            
+                            # Step 2: Create chunks
+                            chunks = create_chunks(
+                                pages_data=pages_data,
+                                doc_id=doc_id,
+                                source_file=doc_item["original_name"]
+                            )
+                            
+                            # Step 3: Store chunks with embeddings in ChromaDB
+                            store_chunks(chunks)
+                            
+                            success_count += 1
+                            
+                        except Exception as e:
+                            st.error(f"Error processing {doc_item['original_name']}: {str(e)}")
+                            error_count += 1
+                    
+                    # Show results
+                    if success_count > 0:
+                        st.success(f"Successfully processed {success_count} document(s)!")
+                    if error_count > 0:
+                        st.error(f"Failed to process {error_count} document(s)")
+
 
     def sort_key(item: dict):
         if sort_mode in ("Newest", "Oldest"):
@@ -214,6 +261,9 @@ def render_file_manager_page():
 
                     st.session_state.selected_doc_ids.discard(doc_id)
                     st.session_state.pop(f"use_{doc_id}", None)
+
+                    # Delete the chunks from ChromaDB
+                    delete_document_chunks(doc_id)
 
                     # If you deleted the currently viewed file, close viewer
                     if st.session_state.viewer_doc_id == doc_id:
